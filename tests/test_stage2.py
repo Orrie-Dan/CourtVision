@@ -75,6 +75,10 @@ def test_inlier_hull_frac_reports_spatial_spread():
     (105, 0.601, 12.06, True),
     (115, 0.674, 21.32, True),
     (101, 0.089, 5.96, False),   # court_only row: moving inliers, genuine pan
+    # Stage 2 gated rows (results/phase3/stage2) falsely rejected at the old 0.20 threshold:
+    # slow pans, lane visually on the paint in stage2_grid_120_190.png.
+    (154, 0.324, 3.08, False),
+    (188, 0.219, 4.76, False),
 ])
 def test_motion_gate_flags_stage1_pinned_fits(frame, static_share, shift, flagged):
     met = {"status": "ok", "static_inlier_share": static_share, "max_test_point_shift_px": shift,

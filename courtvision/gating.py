@@ -14,7 +14,9 @@ import numpy as np
 @dataclass(frozen=True)
 class GateParams:
     # Motion gates (on top of estimate_motion's own status gating).
-    max_static_inlier_share: float = 0.20  # Stage 1 full-frame drift had 0.5-0.7 static inliers...
+    # Stage 1 pinned full-frame fits: 0.47-0.71 static inliers. Stage 2 court-only slow pans (~1.4 px/frame,
+    # visually on-lane): up to 0.32 static. 0.20 falsely rejected 5 such frames; 0.40 separates the two.
+    max_static_inlier_share: float = 0.40
     static_check_min_shift_px: float = 2.0  # ...while the fit still moved test points 5-21 px
     min_inlier_hull_frac: float = 0.03     # inlier convex hull / frame area; rejects clustered fits
     # Lane geometry gates, relative to the last accepted lane.

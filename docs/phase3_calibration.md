@@ -16,6 +16,9 @@
 |---|---|---|---|
 | 105 | reference | lower_upper | Each FT corner < 0.6 px from its lane line. |
 | 115 | reference | lower_upper | As above. |
+| 150 | reference | lower_upper | Added 2026-11-17. FT corners 2.84 / 1.29 px from their lane lines. |
+| 175 | partial_reference | lower_upper | FT-lower corner below the frame; P7 clicked at the edge (9.1 px off). Corners 0–2 only. |
+| 199 | partial_reference | lower_upper | As 175 (33.9 px off). Corners 0–2 only. |
 | 100 | historical | upper_lower | Original cell 14. Unverified whether this, or the cell-15 "Frame 75" lane, built the propagation reference. |
 | 200 | rejected | upper_lower | P8 is 34.6 px off its own lower-lane line. |
 
@@ -74,7 +77,7 @@ Interpretation:
   is not proof.
 - `accepted_calibrated_frames` is empty: no frame is accepted for mapping yet.
 
-## Stage 2 — gated propagation (implemented; not yet run on real frames)
+## Stage 2 — gated propagation
 
 Code: `courtvision/gating.py`, `propagation.gated_propagate`, `court_mask.exclude_boxes`,
 `tracking.boxes_for_frame`; notebook section 2b. `chain_propagate` is unchanged and remains the baseline.
@@ -84,7 +87,7 @@ Code: `courtvision/gating.py`, `propagation.gated_propagate`, `court_mask.exclud
 - **Anchor:** every frame is matched against the last *accepted* frame, so a bad frame is skipped rather
   than ending the chain (the step limit scales with the gap).
 - **Per-frame status:** `reference | propagated | reconstructed | rejected | lost`.
-  - `propagated`: `estimate_motion` status ok, not "pinned" (static-inlier share > 0.20 *while* the fit
+  - `propagated`: `estimate_motion` status ok, not "pinned" (static-inlier share > 0.40 *while* the fit
     moves test points > 2 px — the Stage 1 signature; a stationary camera has ~0 shift and passes; a large
     static overlay is indistinguishable from a stationary camera by these metrics, so overlays must be
     removed by the feature mask), inlier hull ≥ 3 % of the frame
@@ -98,7 +101,36 @@ Code: `courtvision/gating.py`, `propagation.gated_propagate`, `court_mask.exclud
   once more reference frames are annotated; until then gated frames are not added to `ACCEPTED_HOMOGRAPHIES`.
 - **Verified:** synthetic unit tests (`tests/test_stage2.py`) cover each gate, recovery across a rejected
   frame, `lost`, static-dominated fits being rejected, refinement fallback (stubbed and real Hough), and
-  per-frame player masks. **Not verified:** behaviour and accuracy on SportsMOT frames.
+  per-frame player masks.
+
+### Stage 2 results (Kaggle run, 2026-11-17, frames 100–199, static threshold 0.20)
+
+Artifacts: `results/phase3/stage2/stage2_gated_propagation.csv` (tracked); `stage2_overlays_105_115.png`,
+`stage2_grid_120_190.png` (local, git-ignored). Detector produced 712 player boxes for the window (~7/frame,
+so some people were probably missed: masking is partial).
+
+| Frame | Stage 1 full-frame | Stage 1 court-only | Stage 2 gated |
+|---|---|---|---|
+| 105 (mean / max px vs manual) | 9.40 / 13.41 | 5.85 / 10.53 | **1.79 / 2.81** |
+| 115 | 62.92 / 79.82 | failed (low_confidence) | **3.76 / 6.27** |
+
+- Statuses: 92 propagated, 2 reconstructed (162, 163), 5 rejected (152, 154, 156, 158, 188), none lost.
+- Static-inlier share 0.000 for frames 104–121; off-court share ≤ 0.002; bottom-band share 0.
+- Frame-115 error (3.76 px) is about the size of the manual-click vs fitted-line disagreement (4.10 px),
+  i.e. at the resolution the current references can measure.
+- **Frames 120–190 (visual check only, half-resolution grid):** the lane stays on the painted lane, its
+  free-throw end meets the key arc, and its baseline follows the "ST. LOUIS" lettering. Players grow with
+  the lane, so the 2.77× cumulative lane-area growth over 100–199 is camera zoom, not scale drift.
+  From ~140 the lower half of the lane is under the score bar and cannot be checked visually.
+- **Rejections were false:** all five were slow pans (median motion ~1.4 px) with static share
+  0.22–0.32 and the next frame accepted across the gap. Accepted frames reached 0.295; Stage 1 pinned fits
+  started at 0.47. The threshold is now **0.40** (tuned on this run; recheck on new segments).
+- **Reconstructions at 162–163** moved the lane 13–17 px from the motion prediction (~3 px). Frame 170
+  still looks aligned, so this did not derail the chain, but whether it corrected drift or snapped to the
+  wrong line is unresolved. Refinement is still seeded (finding 4).
+- **Not verified:** pixel accuracy beyond frame 115 (no references), the lower lane corners after ~140,
+  and the effect of the 0.40 threshold on real frames (needs a re-run). No frame is in
+  `ACCEPTED_HOMOGRAPHIES` yet.
 
 ## Findings from the code audit
 
@@ -141,7 +173,7 @@ Code: `courtvision/gating.py`, `propagation.gated_propagate`, `court_mask.exclud
 ## Next stages
 
 1. **Stage 1 (done, 2026-11-17):** reproduction numbers confirmed; see Stage 1 results.
-2. **Stage 2 (implemented, awaiting Kaggle run + more reference annotations):** confidence-gated local propagation. Use court-only features, check inlier spatial spread and
+2. **Stage 2 (implemented and run on 100–199; needs references at e.g. 150 / 175 / 199 for measured error):** confidence-gated local propagation. Use court-only features, check inlier spatial spread and
    convex/plausible lane polygons, and compare independent vs propagated estimates at the reference frames.
 3. **Stage 3:** automatic re-anchoring and rejection. Frame status is one of
    `independent | propagated | reconstructed | rejected`.

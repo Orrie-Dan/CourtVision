@@ -29,9 +29,28 @@ def test_manual_lane_115_matches_handover_comparison():
     assert round(mean, 2) == 4.10 and round(mx, 2) == 6.86
 
 
-@pytest.mark.parametrize("fid", [105, 115, 100])
+@pytest.mark.parametrize("fid", [105, 115, 150, 100])
 def test_ft_order_is_geometrically_consistent(fid):
     assert ann.check_ft_order(ann.ANNOTATIONS[fid])["ok"]
+
+
+@pytest.mark.parametrize("fid, off_px", [(175, 9.1), (199, 33.9)])
+def test_partial_references_flag_offscreen_ft_lower(fid, off_px):
+    a = ann.ANNOTATIONS[fid]
+    d = ann.check_ft_order(a)
+    assert not d["ok"] and round(d["ft_lower_to_lower"], 1) == off_px and d["ft_upper_to_upper"] < 5
+    np.testing.assert_array_equal(ann.corner_validity(a), [True, True, True, False])
+
+
+def test_full_references_have_all_corners_valid():
+    for fid, a in ann.ANNOTATIONS.items():
+        if a.status == "reference":
+            assert ann.corner_validity(a).all(), fid
+
+
+def test_partial_reference_requires_unreliable_points():
+    with pytest.raises(AssertionError):
+        ann.LineAnnotation(1, ((0, 0),) * 8, "lower_upper", "partial_reference")
 
 
 def test_rejected_frame200_fails_order_check():

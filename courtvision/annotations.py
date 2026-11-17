@@ -30,8 +30,13 @@ class LineAnnotation:
     frame: int                 # FRAME_PATHS index (not the file stem)
     points: tuple              # 8 (x, y) tuples, order as clicked
     ft_order: str              # "lower_upper": P7 = FT-lower, P8 = FT-upper; "upper_lower": the reverse
-    status: str                # "reference" | "historical" | "rejected"
+    status: str                # "reference" | "partial_reference" | "historical" | "rejected"
     note: str = ""
+    unreliable_points: tuple = ()  # indices (0-7) of clicks known to be inaccurate, e.g. clamped at the frame edge
+
+    def __post_init__(self):
+        assert self.status != "partial_reference" or self.unreliable_points, \
+            "partial_reference requires unreliable_points"
 
     @property
     def array(self) -> np.ndarray:
@@ -52,6 +57,31 @@ ANNOTATIONS = {
         ft_order="lower_upper",
         status="reference",
         note="User-identified clear reference frame; strongest reconstruction result (4.10 px mean).",
+    ),
+    175: LineAnnotation(
+        175,
+        ((197, 687), (449, 418), (386, 489), (822, 537), (419, 666), (763, 707), (949, 720), (1038, 563)),
+        ft_order="lower_upper",
+        status="partial_reference",
+        unreliable_points=(6,),
+        note="Stage 2 validation (2026-11-17). FT-lower corner is below the frame; P7 was clicked at the bottom "
+             "edge as a best guess (9.1 px off the lower lane line). Use only corners 0-2.",
+    ),
+    199: LineAnnotation(
+        199,
+        ((253, 684), (527, 392), (504, 490), (1092, 560), (437, 675), (644, 700), (1092, 720), (1182, 572)),
+        ft_order="lower_upper",
+        status="partial_reference",
+        unreliable_points=(6,),
+        note="Stage 2 validation (2026-11-17). FT-lower corner is below the frame; P7 was clicked at the bottom "
+             "edge as a best guess (33.9 px off the lower lane line). Use only corners 0-2.",
+    ),
+    150: LineAnnotation(
+        150,
+        ((224, 703), (474, 438), (475, 482), (931, 532), (339, 610), (789, 665), (906, 678), (987, 541)),
+        ft_order="lower_upper",
+        status="reference",
+        note="Stage 2 validation reference (2026-11-17, new selector). FT corners 2.84 / 1.29 px from their lane lines.",
     ),
     100: LineAnnotation(
         100,
@@ -102,6 +132,21 @@ def lane_corners(ann: LineAnnotation) -> np.ndarray:
     base, upper, lower = line_through(p[0], p[1]), line_through(p[2], p[3]), line_through(p[4], p[5])
     up, lo = ft_indices(ann)
     return np.array([intersect(base, lower), intersect(base, upper), p[up], p[lo]], dtype=np.float64)
+
+
+REFERENCE_STATUSES = ("reference", "partial_reference")
+
+
+def corner_validity(ann: LineAnnotation) -> np.ndarray:
+    """Boolean mask over LANE_CORNER_ORDER: True where the corner depends only on reliable clicks.
+
+    baseline_lower = baseline x lower lane (P1, P2, P5, P6); baseline_upper = baseline x upper lane
+    (P1-P4); ft_upper / ft_lower are the clicked FT corners themselves.
+    """
+    bad = set(ann.unreliable_points)
+    up, lo = ft_indices(ann)
+    needs = ({0, 1, 4, 5}, {0, 1, 2, 3}, {up}, {lo})
+    return np.array([not (n & bad) for n in needs])
 
 
 def check_ft_order(ann: LineAnnotation, tol_px: float = 5.0) -> dict:
