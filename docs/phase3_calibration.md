@@ -22,15 +22,54 @@
 The original selector page labelled P7 = upper and P8 = lower, but frames 105/115 were clicked lower-then-upper
 (confirmed geometrically). The new selector (`viz.write_selector_html`) uses the lower-then-upper order.
 
-## Reported results (from the handover; not yet re-run in this repo)
+## Reported results (from the handover)
 
 - Static homography invalid: frame 100 vs 200 anchors disagree by 229.28 px mean (frame 150: 306.01 px).
-- Court-only ORB, frames 100→101: 1,182 matches, 876 inliers (0.7411).
+  *Not re-run.*
+- Court-only ORB, frames 100→101: 1,182 matches, 876 inliers (0.7411). **Reproduced in Stage 1** (0.741).
 - Independent vs chained propagation: frame 105 mean 9.4 / max 13.41 px; frame 115 mean 62.92 / max 79.82 px.
+  **Reproduced in Stage 1** (full-frame mode: 9.400 / 13.408 and 62.923 / 79.822).
 - Frame 115 lane reconstruction: mean 4.10 / max 6.86 px vs the manual lane.
 
 The 4.10 / 6.86 px arithmetic **is verified** (`tests/test_calibration.py`): the reference is the cell-31 lane
 (baseline corners are intersections of the clicked lines: `[347.25, 541.48]`, `[440.79, 438.78]`).
+
+## Stage 1 results (Kaggle run, 2026-11-17)
+
+Artifacts: `results/phase3/stage1/` — `stage1_propagation_diagnostics.csv` (per-step diagnostics, frames
+101–115, `full_frame` and `court_only` modes) and `experiment_config.json` are tracked; the overlay PNGs
+(`stage1_overlays_105_115.png`, `stage1_frame115_lane.png`) are kept locally and git-ignored for size.
+
+Chained propagation error vs the manual lane:
+
+| Mode | Frame 105 mean / max (px) | Frame 115 mean / max (px) |
+|---|---|---|
+| full_frame | 9.400 / 13.408 | 62.923 / 79.822 |
+| court_only | 5.845 / 10.528 | — (step 114→115 `low_confidence`: 229 / 423 inliers, 0.541) |
+
+Per-step diagnostics:
+
+| | full_frame | court_only |
+|---|---|---|
+| Median inlier motion, steps 101–103 | 1.44–2.07 px | 2.44–3.58 px |
+| Median inlier motion, steps 104–115 | **0.0 px** | 5.83–17.60 px |
+| Static inlier share | 0.47–0.48 → 0.51–0.71 from step 104 | 0.00–0.09 |
+| Off-court inlier share | 0.865–0.999 | 0 (by mask) |
+
+Interpretation:
+
+- **Full-frame drift is explained by static features dominating the fit.** From step 104 the median full-frame
+  inlier does not move while court-only features show 6–17 px of camera motion per step, so the chained
+  homography under-estimates camera motion and the lane lags. Inliers are overwhelmingly off-court and
+  increasingly static; the scoreboard/score bug is the likely source but the diagnostics do not isolate it.
+  This upgrades finding 2 from hypothesis to supported.
+- **Court-only is more accurate but not robust on its own.** Steps 110 (558 matches, 17.6 px median motion) and
+  115 are weak; full-frame match counts also dip on those steps, suggesting blur or fast motion. This motivates
+  the Stage 2 confidence gating rather than a straight swap to court-only.
+- **Reference source (finding 3) is still unconfirmed.** No saved frame-100 lane artifact existed on Kaggle;
+  the config records `"ASSUMED: cell-14 lane"`. The exact reproduction of 9.4 px is consistent with that, but
+  is not proof.
+- `accepted_calibrated_frames` is empty: no frame is accepted for mapping yet.
 
 ## Findings from the code audit
 
@@ -39,10 +78,11 @@ The 4.10 / 6.86 px arithmetic **is verified** (`tests/test_calibration.py`): the
    corners are themselves extrapolated, not observed.
 2. **Propagation used full-frame ORB.** The court mask was only tested on 100→101. A synthetic test shows a small
    static overlay is normally rejected by RANSAC, so the scoreboard is a hypothesis for the drift, not a
-   conclusion. Stage 1 logs static, bottom-band and off-court inlier shares per step on real frames.
+   conclusion. Stage 1 logs static, bottom-band and off-court inlier shares per step on real frames; the
+   results support the static-feature explanation (see Stage 1 results).
 3. **Reference homography source is ambiguous.** Cell 15 overwrote the cell-14 lane (differences of 107–198 px)
    before cell 16 built `HOMOGRAPHY`. The 9.4 px agreement at frame 105 suggests the cell-14 lane was used
-   (inference). Stage 1 checks saved artifacts.
+   (inference). Stage 1 found no saved artifact; still unconfirmed (see Stage 1 results).
 4. **Refinement (cell 39) is seeded by the propagated lane with a 20 px band.** With 60+ px drift the seed misses
    the true lines, so refinement inherits propagation errors.
 5. **Mapping (old cell 56) applied one static homography and tested `inside_court` with full-court dimensions on
@@ -71,8 +111,8 @@ The 4.10 / 6.86 px arithmetic **is verified** (`tests/test_calibration.py`): the
 
 ## Next stages
 
-1. **Stage 1 (now):** run notebook section 2 on Kaggle and confirm the reproduction numbers.
-2. **Stage 2:** confidence-gated local propagation. Use court-only features, check inlier spatial spread and
+1. **Stage 1 (done, 2026-11-17):** reproduction numbers confirmed; see Stage 1 results.
+2. **Stage 2 (next):** confidence-gated local propagation. Use court-only features, check inlier spatial spread and
    convex/plausible lane polygons, and compare independent vs propagated estimates at the reference frames.
 3. **Stage 3:** automatic re-anchoring and rejection. Frame status is one of
    `independent | propagated | reconstructed | rejected`.

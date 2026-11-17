@@ -1,0 +1,23 @@
+{
+  "sequence": "v_00HRwkvvjtQ_c007",
+  "frames": 300,
+  "imgsz": 1280,
+  "conf": 0.25,
+  "iou": 0.7,
+  "bytetrack": {
+    "track_high_thresh": 0.25,
+    "track_low_thresh": 0.1,
+    "new_track_thresh": 0.25,
+    "track_buffer": 30,
+    "match_thresh": 0.9,
+    "fuse_score": true
+  },
+  "reference_source_frame100": "ASSUMED: cell-14 lane (no saved artifact in /kaggle/working)",
+  "accepted_calibrated_frames": [],
+  "limitations": [
+    "No static whole-clip homography; per-frame calibration pending validation",
+    "Lane-relative coordinates; NCAA dimensions unverified for this court",
+    "Scoreboard occludes lane corners in many frames",
+    "Track IDs not guaranteed stable"
+  ]
+}
