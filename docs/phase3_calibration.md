@@ -61,8 +61,11 @@ Interpretation:
 - **Full-frame drift is explained by static features dominating the fit.** From step 104 the median full-frame
   inlier does not move while court-only features show 6–17 px of camera motion per step, so the chained
   homography under-estimates camera motion and the lane lags. Inliers are overwhelmingly off-court and
-  increasingly static; the scoreboard/score bug is the likely source but the diagnostics do not isolate it.
-  This upgrades finding 2 from hypothesis to supported.
+  increasingly static. The static share tracks the bottom-band share almost exactly (e.g. 0.601 / 0.609 at
+  105, 0.710 / 0.713 at 108), pointing at the bottom score bar; this is a correlation of aggregate shares,
+  not a per-point check. A homography can hold that strip fixed while still moving the rest of the image,
+  which is how the median inlier motion is 0 px while test points shift 5–21 px. This upgrades finding 2
+  from hypothesis to supported.
 - **Court-only is more accurate but not robust on its own.** Steps 110 (558 matches, 17.6 px median motion) and
   115 are weak; full-frame match counts also dip on those steps, suggesting blur or fast motion. This motivates
   the Stage 2 confidence gating rather than a straight swap to court-only.
@@ -70,6 +73,32 @@ Interpretation:
   the config records `"ASSUMED: cell-14 lane"`. The exact reproduction of 9.4 px is consistent with that, but
   is not proof.
 - `accepted_calibrated_frames` is empty: no frame is accepted for mapping yet.
+
+## Stage 2 — gated propagation (implemented; not yet run on real frames)
+
+Code: `courtvision/gating.py`, `propagation.gated_propagate`, `court_mask.exclude_boxes`,
+`tracking.boxes_for_frame`; notebook section 2b. `chain_propagate` is unchanged and remains the baseline.
+
+- **Features:** court mask (bottom 15 % already excluded) minus padded player boxes from the detector, so
+  neither the score bar, the stands (off-plane, parallax) nor moving players drive the court homography.
+- **Anchor:** every frame is matched against the last *accepted* frame, so a bad frame is skipped rather
+  than ending the chain (the step limit scales with the gap).
+- **Per-frame status:** `reference | propagated | reconstructed | rejected | lost`.
+  - `propagated`: `estimate_motion` status ok, not "pinned" (static-inlier share > 0.20 *while* the fit
+    moves test points > 2 px — the Stage 1 signature; a stationary camera has ~0 shift and passes; a large
+    static overlay is indistinguishable from a stationary camera by these metrics, so overlays must be
+    removed by the feature mask), inlier hull ≥ 3 % of the frame
+    (new `inlier_hull_frac` metric), and the predicted lane is convex, within the frame ± 25 %, moved
+    ≤ 40 px per frame of gap, with area ratio in [0.80, 1.25] vs the last accepted lane.
+  - `reconstructed`: gates failed, but `refine_lane_from_prior` around the prediction (or the last accepted
+    lane if there is no usable prediction) moved no corner more than 25 px and its lane passes the same lane
+    gate. This is still seeded refinement (finding 4) — bounded, not prior-free.
+  - `rejected`: neither; `lost` after 5 consecutive rejections (propagation stops).
+- **Thresholds are provisional** (`GateParams`), chosen from the frames 101–115 diagnostics only. Tune them
+  once more reference frames are annotated; until then gated frames are not added to `ACCEPTED_HOMOGRAPHIES`.
+- **Verified:** synthetic unit tests (`tests/test_stage2.py`) cover each gate, recovery across a rejected
+  frame, `lost`, static-dominated fits being rejected, refinement fallback (stubbed and real Hough), and
+  per-frame player masks. **Not verified:** behaviour and accuracy on SportsMOT frames.
 
 ## Findings from the code audit
 
@@ -112,7 +141,7 @@ Interpretation:
 ## Next stages
 
 1. **Stage 1 (done, 2026-11-17):** reproduction numbers confirmed; see Stage 1 results.
-2. **Stage 2 (next):** confidence-gated local propagation. Use court-only features, check inlier spatial spread and
+2. **Stage 2 (implemented, awaiting Kaggle run + more reference annotations):** confidence-gated local propagation. Use court-only features, check inlier spatial spread and
    convex/plausible lane polygons, and compare independent vs propagated estimates at the reference frames.
 3. **Stage 3:** automatic re-anchoring and rejection. Frame status is one of
    `independent | propagated | reconstructed | rejected`.

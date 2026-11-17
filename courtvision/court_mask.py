@@ -23,3 +23,19 @@ def court_mask(frame, min_area: int = 10000, exclude_bottom_frac: float = 0.15) 
     if exclude_bottom_frac > 0:
         out[int(out.shape[0] * (1 - exclude_bottom_frac)):, :] = 0
     return out
+
+
+def exclude_boxes(mask: np.ndarray, boxes_xywh, pad_px: int = 8) -> np.ndarray:
+    """Copy of `mask` with each (x, y, w, h) box (plus `pad_px`) zeroed.
+
+    Used to drop player features: players are inside the court mask but move independently
+    of the camera, so their ORB matches are not court-plane motion.
+    """
+    out = mask.copy()
+    h, w = out.shape[:2]
+    for x, y, bw, bh in np.asarray(boxes_xywh, np.float64).reshape(-1, 4):
+        x0, y0 = max(int(np.floor(x - pad_px)), 0), max(int(np.floor(y - pad_px)), 0)
+        x1, y1 = min(int(np.ceil(x + bw + pad_px)), w), min(int(np.ceil(y + bh + pad_px)), h)
+        if x1 > x0 and y1 > y0:
+            out[y0:y1, x0:x1] = 0
+    return out

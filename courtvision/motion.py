@@ -61,6 +61,10 @@ def estimate_motion(img_a, img_b, mask_a=None, mask_b=None, diag_mask=None,
         "median_inlier_motion_px": round(float(np.median(disp)), 2) if len(disp) else float("nan"),
         "static_inlier_share": round(float((disp < params.static_motion_px).mean()), 3) if len(disp) else float("nan"),
         "bottom_band_inlier_share": round(float((pa[inl, 1] > (1 - params.bottom_band_frac) * h).mean()), 3),
+        # Spatial spread: convex hull of inliers as a fraction of the frame. A fit supported by
+        # one small cluster (e.g. a graphic or one player) is not evidence of camera motion.
+        "inlier_hull_frac": round(float(cv2.contourArea(cv2.convexHull(pa[inl])) / (h * w)), 4)
+        if inl.sum() >= 3 else 0.0,
     }
     if diag_mask is not None and inl.any():
         xi = pa[inl, 0].astype(int).clip(0, w - 1)

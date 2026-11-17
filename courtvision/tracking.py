@@ -47,6 +47,11 @@ def load_tracks(csv_path) -> pd.DataFrame:
     return tracks
 
 
+def boxes_for_frame(tracks: pd.DataFrame, frame_id: int):
+    """(N, 4) array of (x, y, w, h) boxes for a tracking frame id (file stem, not FRAME_PATHS index)."""
+    return tracks.loc[tracks["frame"] == frame_id, ["x", "y", "w", "h"]].to_numpy(dtype=float)
+
+
 def add_footpoints(tracks: pd.DataFrame) -> pd.DataFrame:
     """Bottom-centre of each box (pixel footpoint)."""
     tracks = tracks.copy()
