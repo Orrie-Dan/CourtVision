@@ -1,0 +1,7 @@
+numpy
+opencv-python-headless>=4.9
+pandas>=2.2
+matplotlib
+PyYAML>=6
+ultralytics>=8.4
+trackers
