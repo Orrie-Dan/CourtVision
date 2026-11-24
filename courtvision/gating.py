@@ -49,6 +49,27 @@ class ReanchorParams:
         return replace(gate, max_refine_correction_px=self.max_correction_px)
 
 
+@dataclass(frozen=True)
+class KeyframeParams:
+    """Stage 3b: match each frame to a fixed keyframe instead of the previous frame.
+
+    Stage 2 chained ~100 frame-to-frame homographies and its small per-step scale error compounded
+    (FT end 48 px off by frame 199). Holding the anchor fixed for up to `max_gap` frames makes the
+    error compound once per keyframe. The keyframe is refreshed BEFORE the match fails: when inliers
+    fall, or the motion approaches `MotionParams.max_test_point_shift_px` (150 px "excessive_motion").
+    PROVISIONAL: compare max_gap values against the manual references on Kaggle.
+    """
+    max_gap: int = 25
+    refresh_min_inliers: int = 150
+    refresh_max_shift_px: float = 100.0
+
+    def needs_refresh(self, gap: int, metrics: dict) -> bool:
+        """True if the frame just accepted should become the next keyframe."""
+        return (gap >= self.max_gap
+                or metrics.get("inliers", 0) < self.refresh_min_inliers
+                or metrics.get("max_test_point_shift_px", 0.0) > self.refresh_max_shift_px)
+
+
 def reanchor_failures(refined, predicted, counts: dict, params: ReanchorParams = ReanchorParams()):
     """Reasons a refined lane must NOT replace the propagated one ([] = accept). Returns (failures, metrics)."""
     r = np.asarray(refined, np.float64)

@@ -200,6 +200,25 @@ every_10 — 2 ok (110, 120), 40 / 30; every_15 — 1 ok (115), 36 / 34. No fram
 - **Conclusion:** bounded seeded refinement does not fix the drift. The code stays (`reanchor=None` default).
   Next: reduce the number of compounding motion steps (keyframe matching), see Stage 3b.
 
+## Stage 3b — keyframe matching (implemented, not yet run on Kaggle)
+
+Code: `gating.KeyframeParams`, `gated_propagate(..., keyframe=...)`; notebook section 2d. `keyframe=None`
+(default) is exactly Stage 2.
+
+- Each frame is matched to a **keyframe** held fixed across accepted frames instead of to the previous frame,
+  so the per-step scale error compounds once per keyframe rather than ~100 times over 100–199.
+- The lane gate still compares with the last accepted lane (gap 1), so its 40 px/frame step limit is unchanged.
+- Keyframe refresh: after `max_gap` frames (default 25), when the keyframe match weakens (inliers < 150, or
+  test-point motion > 100 px, i.e. before the 150 px `excessive_motion` limit), after a reconstructed /
+  independent frame, or when the keyframe match fails the gates and the frame falls back to the last accepted
+  frame (`anchor_mode = fallback`; the fallback frame becomes the keyframe).
+- No line refinement is used for correction; Stage 2's refinement fallback for failed frames is unchanged.
+- Synthetic check (`tests/test_stage3b.py`): with 1 %/frame zoom + pan + pixel noise over 40 frames, final
+  error is 2.2 px chained vs ~1.0–1.2 px with keyframes. Real-frame size of the gain is unknown: 2d.1 compares
+  `max_gap` = 10 / 25 / 50 against the references.
+- Risk: matching across a larger gap means larger appearance change (zoom 2.77× over the window); ORB's
+  scale pyramid should cope with the ≤ ~1.3× change inside 25 frames, and failures fall back to the chain.
+
 ## Findings from the code audit
 
 1. **Frame-115 "automatic" result is seeded by the manual clicks.** Only segments within 14–18 px / 8–12° of the
@@ -243,6 +262,6 @@ every_10 — 2 ok (110, 120), 40 / 30; every_15 — 1 ok (115), 36 / 34. No fram
 1. **Stage 1 (done, 2026-11-17):** reproduction numbers confirmed; see Stage 1 results.
 2. **Stage 2 (done: accurate to ~6 px for ~15 frames, then drifts to 20–48 px by 150–199):** confidence-gated local propagation. Use court-only features, check inlier spatial spread and
    convex/plausible lane polygons, and compare independent vs propagated estimates at the reference frames.
-3. **Stage 3 (re-anchoring by refinement: run, does not fix drift; keyframe matching next):** automatic re-anchoring and rejection. Frame status is one of
+3. **Stage 3 (re-anchoring by refinement: run, does not fix drift; 3b keyframe matching implemented, awaiting run):** automatic re-anchoring and rejection. Frame status is one of
    `reference | independent | propagated | reconstructed | rejected | lost`.
 4. **Stage 4:** validate on other camera-motion segments, then do per-frame footpoint mapping.

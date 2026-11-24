@@ -18,7 +18,7 @@ from typing import Callable
 import cv2
 import numpy as np
 
-from .gating import GateParams, ReanchorParams, is_convex_quad, lane_gate, motion_gate_failures, reanchor_failures
+from .gating import GateParams, KeyframeParams, ReanchorParams, is_convex_quad, lane_gate, motion_gate_failures, reanchor_failures
 from .homography import image_to_court, project_court_to_image
 from .motion import MotionParams, estimate_motion
 
@@ -71,11 +71,21 @@ def default_refine(frame, prior_corners, gate: GateParams):
     return refine_lane_from_prior(frame, prior_corners, max_correction_px=gate.max_refine_correction_px)
 
 
+_UNSET = object()
+
+
+def _anchor(idx, img, mask_fn, diag_mask_fn, mask=_UNSET):
+    """Frame state used as a motion reference: index, image, feature mask, diagnostic mask."""
+    if mask is _UNSET:
+        mask = mask_fn(idx, img) if mask_fn else None
+    return {"idx": idx, "img": img, "mask": mask, "diag": diag_mask_fn(img) if diag_mask_fn else None}
+
+
 def gated_propagate(load_frame: Callable, H_ref: np.ndarray, ref_idx: int, stop: int,
                     mask_fn: Callable | None = None, diag_mask_fn: Callable | None = None,
                     motion_params: MotionParams = MotionParams(), gate: GateParams = GateParams(),
                     refine_fn: Callable | None = default_refine, seed: int | None = 0,
-                    reanchor: ReanchorParams | None = None):
+                    reanchor: ReanchorParams | None = None, keyframe: KeyframeParams | None = None):
     """Confidence-gated forward propagation from `ref_idx` toward `stop` (exclusive).
 
     load_frame(idx) -> BGR image.
@@ -84,8 +94,9 @@ def gated_propagate(load_frame: Callable, H_ref: np.ndarray, ref_idx: int, stop:
     diag_mask_fn(frame) -> mask used only for the off-court inlier diagnostic.
     refine_fn(frame, prior_corners, gate) -> lane.LaneResult; None disables reconstruction.
 
-    Each frame is matched against the last ACCEPTED frame (the anchor), so a rejected frame
-    does not break the chain. Statuses: propagated (motion + lane gates pass), reconstructed
+    Each frame is matched against an anchor frame; by default (keyframe=None) that is the last
+    ACCEPTED frame, so a rejected frame does not break the chain. The lane gate always compares
+    against the last accepted lane. Statuses: propagated (motion + lane gates pass), reconstructed
     (gates failed, lane refinement around the prediction succeeded and passed the lane gate),
     rejected (neither), lost (`gate.max_consecutive_rejections` reached; propagation stops).
 
@@ -94,6 +105,13 @@ def gated_propagate(load_frame: Callable, H_ref: np.ndarray, ref_idx: int, stop:
     prediction (refine_fn with `reanchor.max_correction_px`). If `gating.reanchor_failures` passes,
     the frame is `independent` and its refined lane becomes the anchor; if not, it stays
     `propagated` and the next frame tries again. Requires refine_fn.
+
+    keyframe (Stage 3b): None keeps Stage 2 behaviour. Otherwise the anchor is a KEYFRAME that
+    stays fixed across accepted frames, so errors compound once per keyframe instead of once per
+    frame. If matching to the keyframe fails the gates, the frame is matched to the last accepted
+    frame instead (`anchor_mode` = "fallback"). An accepted frame becomes the new keyframe when it
+    used the fallback, was reconstructed / independent, or `keyframe.needs_refresh` (gap reached
+    `max_gap`, or the match to the keyframe is getting weak).
 
     Returns (homographies {idx: image->court H} for accepted frames, records [dict per frame]).
     """
@@ -105,26 +123,22 @@ def gated_propagate(load_frame: Callable, H_ref: np.ndarray, ref_idx: int, stop:
     H_ref = np.asarray(H_ref, np.float64)
     homs = {ref_idx: H_ref / H_ref[2, 2]}
     records = [{"frame": ref_idx, "status": "reference"}]
-    anchor_idx, anchor_img = ref_idx, load_frame(ref_idx)
-    anchor_lane = project_court_to_image(homs[ref_idx])
-    anchor_mask = mask_fn(ref_idx, anchor_img) if mask_fn else None
-    anchor_diag = diag_mask_fn(anchor_img) if diag_mask_fn else None
-    image_size = anchor_img.shape[1::-1]
+    key = last = _anchor(ref_idx, load_frame(ref_idx), mask_fn, diag_mask_fn)
+    last_lane = project_court_to_image(homs[ref_idx])
+    image_size = key["img"].shape[1::-1]
     rejections = 0
     last_fix_idx = ref_idx  # reference or last independent frame
 
-    for idx in range(ref_idx + 1, stop):
-        img = load_frame(idx)
-        gap = idx - anchor_idx
-        mask = mask_fn(idx, img) if mask_fn else None
-        M, met = estimate_motion(anchor_img, img, anchor_mask, mask, anchor_diag, motion_params, orb, matcher)
-        rec = {"frame": idx, "anchor": anchor_idx, **met, "motion_status": met["status"]}
+    def attempt(anchor, idx, img, mask):
+        """Match `img` to `anchor`, predict the lane, run the motion and lane gates."""
+        M, met = estimate_motion(anchor["img"], img, anchor["mask"], mask, anchor["diag"],
+                                 motion_params, orb, matcher)
+        rec = {"frame": idx, "anchor": anchor["idx"], **met, "motion_status": met["status"]}
         fails = motion_gate_failures(met, gate)
-
         H = pred = None
         if M is not None:
             try:
-                H = homs[anchor_idx] @ np.linalg.inv(M)  # current image -> anchor image -> court
+                H = homs[anchor["idx"]] @ np.linalg.inv(M)  # current image -> anchor image -> court
                 H = H / H[2, 2] if np.isfinite(H).all() and abs(H[2, 2]) > 1e-10 else None
             except np.linalg.LinAlgError:
                 H = None
@@ -132,20 +146,35 @@ def gated_propagate(load_frame: Callable, H_ref: np.ndarray, ref_idx: int, stop:
                 fails.append("invalid_homography")
             else:
                 pred = project_court_to_image(H)
-                lane_fails, lane_met = lane_gate(pred, anchor_lane, image_size, gap, gate)
+                lane_fails, lane_met = lane_gate(pred, last_lane, image_size, idx - last["idx"], gate)
                 rec.update(lane_met)
                 fails += lane_fails
         rec["gate_failures"] = ";".join(fails)
+        return rec, fails, H, pred, met
+
+    for idx in range(ref_idx + 1, stop):
+        img = load_frame(idx)
+        gap = idx - last["idx"]
+        mask = mask_fn(idx, img) if mask_fn else None
+        rec, fails, H, pred, met = attempt(key, idx, img, mask)
+        fallback = False
+        if fails and keyframe is not None and key["idx"] != last["idx"]:
+            key_fails = rec["gate_failures"]
+            rec, fails, H, pred, met = attempt(last, idx, img, mask)
+            rec["keyframe_gate_failures"] = key_fails
+            fallback = True
+        if keyframe is not None:
+            rec["anchor_mode"] = "fallback" if fallback else "keyframe"
 
         status, lane = None, None
         if not fails:
             status, lane = "propagated", pred
         elif refine_fn is not None:
-            prior = pred if pred is not None and is_convex_quad(pred) else anchor_lane
+            prior = pred if pred is not None and is_convex_quad(pred) else last_lane
             res = refine_fn(img, prior, gate)
             rec["refine_status"] = res.status
             if res.corners is not None:
-                refine_fails, refine_met = lane_gate(res.corners, anchor_lane, image_size, gap, gate)
+                refine_fails, refine_met = lane_gate(res.corners, last_lane, image_size, gap, gate)
                 rec.update({f"refined_{k}": v for k, v in refine_met.items()})
                 if refine_fails:
                     rec["refine_status"] = "gate_failed:" + ";".join(refine_fails)
@@ -184,7 +213,12 @@ def gated_propagate(load_frame: Callable, H_ref: np.ndarray, ref_idx: int, stop:
         rec["status"] = status
         records.append(rec)
         homs[idx] = H / H[2, 2]
-        anchor_idx, anchor_img, anchor_lane, anchor_mask = idx, img, np.asarray(lane, np.float64), mask
-        anchor_diag = diag_mask_fn(img) if diag_mask_fn else None
+        last, last_lane = _anchor(idx, img, mask_fn, diag_mask_fn, mask), np.asarray(lane, np.float64)
+        # needs_refresh only runs when no fallback happened, so `met` is the keyframe match's metrics.
+        if (keyframe is None or fallback or status != "propagated"
+                or keyframe.needs_refresh(idx - key["idx"], met)):
+            key = last
+            if keyframe is not None:
+                rec["new_keyframe"] = True
         rejections = 0
     return homs, records
