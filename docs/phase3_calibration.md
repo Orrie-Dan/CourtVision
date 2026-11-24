@@ -280,13 +280,31 @@ its start) and **every** reference frame in it is calibrated with **max corner e
 - Caveat recorded in `experiment_config.json`: validated on one segment with 5 references, and the settings were
   tuned on that same segment. Stage 4 is the out-of-sample check.
 
-## Stage 4 — out-of-sample check on frames 200–299 (run A prepared, not yet run)
+## Stage 4 — out-of-sample check on frames 200–299 (run A done; run B prepared)
 
 Notebook section 2e: keyframe propagation with the Stage 3b defaults extended 100 → 299 (player boxes tracked for
 200–299 too), a per-10-frame camera-motion table (lane area vs frame 100, lane centre, keyframes), a contact sheet
 of 200–299 with the propagated lane, and selector pages for candidate reference frames 225 / 250 / 275 / 299
 (`selectors/` in the artifacts zip). Run B: add the clicked frames to `annotations.py`, re-run, and apply the
 acceptance rule to 200–299.
+
+### Stage 4 run A (Kaggle, 2026-11-24)
+
+Artifacts: `results/phase3/stage4/stage4_runA_keyframe_100_300.csv`; `stage4_sheet_200_299.png` (local).
+
+- Frames 100–199 identical to the Stage 3b gap-25 run. Section 5 accepted 100–199 and mapped 712 player
+  footpoints (lane x 1.1–10.3 m, y −3.3–6.6 m) into `player_lane_coordinates.csv`.
+- 200–299: 96 / 100 propagated; 226, 227 and 296 rejected (lane step / clustered inliers) and recovered on the
+  next frame; 8 fallbacks to the last accepted frame. Camera motion is much faster than in 100–199 (median
+  inlier motion 12 px/frame, max 98).
+- Contact sheet: 200–245 push-in on the basket with the lane mostly under the score bar / below the frame;
+  250–270 pull-back with the lane visible; 275–299 wide shot panning right with the whole lane at the left.
+- New references (user clicks, `annotations.py`): **250** partial (FT-lower at the bottom edge, 59 px off its
+  line; corners 0–2), **275** full (FT corners 0.34 / 1.13 px from their lines), **299** partial (baseline
+  clicks only 59 px apart at the frame edge put both baseline corners 60–140 px outside the image; FT corners
+  only). 225 was skipped: lane hidden.
+- Run B (notebook 2e.1 / 2e.4 / section 5): error at 250 / 275 / 299 and the 10 px rule on 200–299. Frames
+  200–249 would be accepted on the strength of references at 250–299 only; the lane is barely visible there.
 
 ## Findings from the code audit
 

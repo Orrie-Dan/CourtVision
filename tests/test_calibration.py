@@ -29,17 +29,24 @@ def test_manual_lane_115_matches_handover_comparison():
     assert round(mean, 2) == 4.10 and round(mx, 2) == 6.86
 
 
-@pytest.mark.parametrize("fid", [105, 115, 150, 100])
+@pytest.mark.parametrize("fid", [105, 115, 150, 100, 275, 299])
 def test_ft_order_is_geometrically_consistent(fid):
     assert ann.check_ft_order(ann.ANNOTATIONS[fid])["ok"]
 
 
-@pytest.mark.parametrize("fid, off_px", [(175, 9.1), (199, 33.9)])
+@pytest.mark.parametrize("fid, off_px", [(175, 9.1), (199, 33.9), (250, 59.0)])
 def test_partial_references_flag_offscreen_ft_lower(fid, off_px):
     a = ann.ANNOTATIONS[fid]
     d = ann.check_ft_order(a)
     assert not d["ok"] and round(d["ft_lower_to_lower"], 1) == off_px and d["ft_upper_to_upper"] < 5
     np.testing.assert_array_equal(ann.corner_validity(a), [True, True, True, False])
+
+
+def test_frame299_uses_ft_corners_only():
+    """Baseline clicks 59 px apart at the frame edge: the extrapolated baseline corners lie outside the image."""
+    a = ann.ANNOTATIONS[299]
+    np.testing.assert_array_equal(ann.corner_validity(a), [False, False, True, True])
+    assert (ann.lane_corners(a)[:2, 0] < 0).all()
 
 
 def test_full_references_have_all_corners_valid():

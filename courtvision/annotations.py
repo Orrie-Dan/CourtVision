@@ -83,6 +83,32 @@ ANNOTATIONS = {
         status="reference",
         note="Stage 2 validation reference (2026-11-17, new selector). FT corners 2.84 / 1.29 px from their lane lines.",
     ),
+    250: LineAnnotation(
+        250,
+        ((375, 702), (694, 362), (547, 518), (860, 558), (495, 690), (655, 711), (1154, 717), (1222, 606)),
+        ft_order="lower_upper",
+        status="partial_reference",
+        unreliable_points=(6,),
+        note="Stage 4 validation (2026-11-24). User: no lower FT corner visible; P7 clicked at the bottom edge "
+             "(59.0 px off the lower lane line). FT-upper 1.72 px from the upper lane line. Use corners 0-2.",
+    ),
+    275: LineAnnotation(
+        275,
+        ((180, 608), (448, 320), (384, 391), (710, 424), (288, 496), (528, 522), (760, 546), (822, 435)),
+        ft_order="lower_upper",
+        status="reference",
+        note="Stage 4 validation (2026-11-24). FT corners 0.34 / 1.13 px from their lane lines.",
+    ),
+    299: LineAnnotation(
+        299,
+        ((4, 293), (42, 248), (15, 370), (247, 378), (36, 471), (213, 476), (290, 479), (338, 384)),
+        ft_order="lower_upper",
+        status="partial_reference",
+        unreliable_points=(0, 1),
+        note="Stage 4 validation (2026-11-24). Baseline clicks are only 59 px apart at the left edge, so both "
+             "baseline corners are extrapolated 60-140 px outside the frame. Use the FT corners only "
+             "(2.86 / 0.82 px from their lane lines).",
+    ),
     100: LineAnnotation(
         100,
         ((261, 455), (287, 427), (356, 350), (486, 362), (375, 467), (683, 499), (789, 393), (728, 500)),
