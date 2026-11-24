@@ -280,7 +280,7 @@ its start) and **every** reference frame in it is calibrated with **max corner e
 - Caveat recorded in `experiment_config.json`: validated on one segment with 5 references, and the settings were
   tuned on that same segment. Stage 4 is the out-of-sample check.
 
-## Stage 4 — out-of-sample check on frames 200–299 (run A done; run B prepared)
+## Stage 4 — out-of-sample check on frames 200–299 (run B: 200–299 rejected, 40–57 px)
 
 Notebook section 2e: keyframe propagation with the Stage 3b defaults extended 100 → 299 (player boxes tracked for
 200–299 too), a per-10-frame camera-motion table (lane area vs frame 100, lane centre, keyframes), a contact sheet
@@ -305,6 +305,29 @@ Artifacts: `results/phase3/stage4/stage4_runA_keyframe_100_300.csv`; `stage4_she
   only). 225 was skipped: lane hidden.
 - Run B (notebook 2e.1 / 2e.4 / section 5): error at 250 / 275 / 299 and the 10 px rule on 200–299. Frames
   200–249 would be accepted on the strength of references at 250–299 only; the lane is barely visible there.
+
+### Stage 4 run B (Kaggle, 2026-11-24): 200–299 fails the acceptance rule
+
+Artifacts: `results/phase3/stage4/stage4_runB_keyframe_100_300.csv`; `stage4_reference_check.png` (local).
+
+| Frame | Valid corners | Mean / max error (px) |
+|---|---|---|
+| 199 | 3 | 7.34 / 7.82 |
+| 250 | 3 | 47.99 / 57.22 |
+| 275 | 4 | 33.62 / 47.70 |
+| 299 | 2 | 36.84 / 41.52 |
+
+- `Segment 200-299: rejected`; 100–199 stays accepted and mapped (712 footpoints). The rule worked as intended.
+- The manual references are sound: at 275 the clicked FT corners sit on the ends of the blue FT semicircle;
+  the propagated lane is too narrow and too high (perspective/scale error), at 299 shifted 20–27 px.
+- **Cause: clustered matches while the camera pushes in (200–250).** Inlier spread (`inlier_hull_frac`):
+  101–199 min 0.108 / median 0.211, no frame < 0.10; 200–249 min 0.032, 12 frames < 0.10; 250–299 min 0.048,
+  6 frames < 0.10. Clustered inliers leave the perspective terms unconstrained. The keyframe refreshed on almost
+  every frame (55 refreshes in 200–299), so the error compounded as in Stage 2. The 0.03 spread gate and the
+  lack of references in 200–249 let it through undetected.
+- Next (agreed): spread gate 0.10 for Stage 4 runs (no effect on 100–199 per the data above) so such stretches
+  are rejected / lost instead of silently wrong, and a second segment anchored on the manual reference at 275,
+  propagated forward and backward and checked against 250 and 299.
 
 ## Findings from the code audit
 
