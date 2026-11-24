@@ -151,6 +151,30 @@ for 101–151 identical to the first run). Error of the gated lane vs the manual
 - Manual-reference precision is a few px (105/115 FT-corner checks); the 20–48 px errors are well above it.
 - Image: `results/phase3/stage2/stage2_reference_check.png` (local, git-ignored).
 
+## Stage 3 — re-anchoring (implemented, not yet run on Kaggle)
+
+Code: `gating.ReanchorParams`, `gating.reanchor_failures`, `gated_propagate(..., reanchor=...)`; notebook
+section 2c. `reanchor=None` (default) is exactly Stage 2.
+
+- Once `every_n` frames (default 10) have passed since the reference or the last fix, a `propagated` frame is
+  refined around its prediction with `refine_fn` and a **10 px** correction limit (Stage 2 fallback: 25 px).
+- Guards: refined lane convex, every corner ≤ 10 px from the prediction, ≥ 3 Hough segments on each of the
+  4 lines, refined/predicted area in [0.93, 1.07]. Pass → status `independent`, the refined lane becomes the
+  anchor. Fail → stays `propagated` (`reanchor_status` records why) and the next frame retries.
+- Rationale: Stage 2 drift after 115 is ~0.5 px/frame at the FT end, so after 10 frames the painted lines
+  should be within a few px of the prediction — inside the refinement band, unlike the 60+ px case of finding 4.
+- Still seeded refinement (finding 4). A snap to the wrong line within 10 px would persist; the measured
+  error at 150 / 175 / 199 is the check.
+- Known gap: refinement needs all four lines. From ~140 the lower lane line is under the score bar and the
+  FT-lower corner leaves the frame by 175, so re-anchoring may fail (`lower_lane_failed`) exactly where drift
+  is largest. The `reanchor_status` counts in 2c.1 will show this; if so, the next step is a 3-line fix
+  that keeps the predicted lower line.
+- Thresholds are provisional; 2c.1 compares `every_n` = 5 / 10 / 15. Frames are still not added to
+  `ACCEPTED_HOMOGRAPHIES`.
+- **Verified:** synthetic tests (`tests/test_stage3.py`): guards, schedule, retry after a failed fix, guard
+  rejection keeps the prediction, no re-anchor on rejected frames, and an end-to-end run with real ORB and
+  real Hough refinement that pulls a lane whose FT end starts 7 px short back to < 4 px.
+
 ## Findings from the code audit
 
 1. **Frame-115 "automatic" result is seeded by the manual clicks.** Only segments within 14–18 px / 8–12° of the
@@ -194,6 +218,6 @@ for 101–151 identical to the first run). Error of the gated lane vs the manual
 1. **Stage 1 (done, 2026-11-17):** reproduction numbers confirmed; see Stage 1 results.
 2. **Stage 2 (done: accurate to ~6 px for ~15 frames, then drifts to 20–48 px by 150–199):** confidence-gated local propagation. Use court-only features, check inlier spatial spread and
    convex/plausible lane polygons, and compare independent vs propagated estimates at the reference frames.
-3. **Stage 3:** automatic re-anchoring and rejection. Frame status is one of
-   `independent | propagated | reconstructed | rejected`.
+3. **Stage 3 (implemented, awaiting Kaggle run):** automatic re-anchoring and rejection. Frame status is one of
+   `reference | independent | propagated | reconstructed | rejected | lost`.
 4. **Stage 4:** validate on other camera-motion segments, then do per-frame footpoint mapping.

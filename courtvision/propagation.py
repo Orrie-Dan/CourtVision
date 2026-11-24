@@ -8,18 +8,22 @@ in Stage 1).
 `gated_propagate` (Stage 2) accepts a frame only when the motion estimate and the lane it
 predicts pass `gating` checks; otherwise it tries lane refinement, and if that fails it
 rejects the frame and matches the next one against the last accepted frame.
+
+Stage 3 (optional `reanchor`): every `reanchor.every_n` frames a propagated lane is refined
+against the painted lines with a tight correction limit; if the guards pass the frame becomes
+`independent` and the chain continues from the refined lane, so drift cannot compound.
 """
 from typing import Callable
 
 import cv2
 import numpy as np
 
-from .gating import GateParams, is_convex_quad, lane_gate, motion_gate_failures
+from .gating import GateParams, ReanchorParams, is_convex_quad, lane_gate, motion_gate_failures, reanchor_failures
 from .homography import image_to_court, project_court_to_image
 from .motion import MotionParams, estimate_motion
 
 # Per-frame status values produced by gated_propagate.
-FRAME_STATUSES = ("reference", "propagated", "reconstructed", "rejected", "lost")
+FRAME_STATUSES = ("reference", "independent", "propagated", "reconstructed", "rejected", "lost")
 
 
 def chain_propagate(load_frame: Callable, H_ref: np.ndarray, ref_idx: int, stop: int, step: int = 1,
@@ -70,7 +74,8 @@ def default_refine(frame, prior_corners, gate: GateParams):
 def gated_propagate(load_frame: Callable, H_ref: np.ndarray, ref_idx: int, stop: int,
                     mask_fn: Callable | None = None, diag_mask_fn: Callable | None = None,
                     motion_params: MotionParams = MotionParams(), gate: GateParams = GateParams(),
-                    refine_fn: Callable | None = default_refine, seed: int | None = 0):
+                    refine_fn: Callable | None = default_refine, seed: int | None = 0,
+                    reanchor: ReanchorParams | None = None):
     """Confidence-gated forward propagation from `ref_idx` toward `stop` (exclusive).
 
     load_frame(idx) -> BGR image.
@@ -83,6 +88,12 @@ def gated_propagate(load_frame: Callable, H_ref: np.ndarray, ref_idx: int, stop:
     does not break the chain. Statuses: propagated (motion + lane gates pass), reconstructed
     (gates failed, lane refinement around the prediction succeeded and passed the lane gate),
     rejected (neither), lost (`gate.max_consecutive_rejections` reached; propagation stops).
+
+    reanchor: None keeps Stage 2 behaviour. Otherwise, once `reanchor.every_n` frames have passed
+    since the reference / last independent frame, a `propagated` frame is refined around its
+    prediction (refine_fn with `reanchor.max_correction_px`). If `gating.reanchor_failures` passes,
+    the frame is `independent` and its refined lane becomes the anchor; if not, it stays
+    `propagated` and the next frame tries again. Requires refine_fn.
 
     Returns (homographies {idx: image->court H} for accepted frames, records [dict per frame]).
     """
@@ -100,6 +111,7 @@ def gated_propagate(load_frame: Callable, H_ref: np.ndarray, ref_idx: int, stop:
     anchor_diag = diag_mask_fn(anchor_img) if diag_mask_fn else None
     image_size = anchor_img.shape[1::-1]
     rejections = 0
+    last_fix_idx = ref_idx  # reference or last independent frame
 
     for idx in range(ref_idx + 1, stop):
         img = load_frame(idx)
@@ -142,6 +154,24 @@ def gated_propagate(load_frame: Callable, H_ref: np.ndarray, ref_idx: int, stop:
                         status, lane, H = "reconstructed", res.corners, image_to_court(res.corners)
                     except AssertionError:
                         status, rec["refine_status"] = None, "degenerate_homography"
+
+        if (status == "propagated" and reanchor is not None and refine_fn is not None
+                and idx - last_fix_idx >= reanchor.every_n):
+            res = refine_fn(img, pred, reanchor.refine_gate(gate))
+            rec["reanchor_status"] = res.status
+            if res.corners is not None:
+                ra_fails, ra_met = reanchor_failures(res.corners, pred, res.counts, reanchor)
+                rec.update(ra_met)
+                if ra_fails:
+                    rec["reanchor_status"] = ";".join(ra_fails)
+                else:
+                    try:
+                        H_fix = image_to_court(res.corners)
+                    except AssertionError:
+                        rec["reanchor_status"] = "degenerate_homography"
+                    else:
+                        status, lane, H = "independent", res.corners, H_fix
+                        last_fix_idx = idx
 
         if status is None:
             rejections += 1

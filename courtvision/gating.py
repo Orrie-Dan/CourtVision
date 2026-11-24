@@ -5,7 +5,7 @@ court-plane camera motion and (b) the lane it predicts is a plausible continuati
 last accepted lane. Thresholds are PROVISIONAL: they are set from the Stage 1 diagnostics
 (frames 101-115 only) and must be re-tuned once more reference frames are annotated.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import cv2
 import numpy as np
@@ -27,6 +27,47 @@ class GateParams:
     # Recovery.
     max_refine_correction_px: float = 25.0  # refinement may move a corner at most this far
     max_consecutive_rejections: int = 5     # then the track is "lost" and propagation stops
+
+
+@dataclass(frozen=True)
+class ReanchorParams:
+    """Stage 3: periodic bounded refinement of a propagated lane (re-anchoring).
+
+    Stage 2 measured ~0.5 px/frame of drift at the free-throw end after frame 115, so a fix every
+    10 frames should find the painted lines within a few px of the prediction. The tight correction
+    limit is what keeps this from snapping to a different line; it is still seeded refinement.
+    PROVISIONAL: compare every_n = 5 / 10 / 15 against the manual references on Kaggle.
+    """
+    every_n: int = 10                   # attempt once this many frames have passed since the last fix
+    max_correction_px: float = 10.0     # refinement may move a corner at most this far from the prediction
+    min_line_segments: int = 3          # Hough segments supporting EACH of the 4 lane lines
+    min_area_ratio: float = 0.93        # refined / predicted lane area: scale must roughly agree
+    max_area_ratio: float = 1.07
+
+    def refine_gate(self, gate: "GateParams") -> "GateParams":
+        """`gate` with the refinement correction limit tightened for re-anchoring."""
+        return replace(gate, max_refine_correction_px=self.max_correction_px)
+
+
+def reanchor_failures(refined, predicted, counts: dict, params: ReanchorParams = ReanchorParams()):
+    """Reasons a refined lane must NOT replace the propagated one ([] = accept). Returns (failures, metrics)."""
+    r = np.asarray(refined, np.float64)
+    p = np.asarray(predicted, np.float64)
+    if not is_convex_quad(r):
+        return ["reanchor_not_convex"], {}
+    corr = np.linalg.norm(r - p, axis=1)
+    area_ratio = abs(cv2.contourArea(r.astype(np.float32))) / abs(cv2.contourArea(p.astype(np.float32)))
+    support = min((counts.get(name, 0) for name in ("baseline", "upper_lane", "lower_lane", "free_throw")))
+    met = {"reanchor_max_correction_px": round(float(corr.max()), 2),
+           "reanchor_area_ratio": round(area_ratio, 3), "reanchor_min_segments": int(support)}
+    fails = []
+    if corr.max() > params.max_correction_px:
+        fails.append("reanchor_correction_too_large")
+    if support < params.min_line_segments:
+        fails.append("reanchor_weak_support")
+    if not params.min_area_ratio <= area_ratio <= params.max_area_ratio:
+        fails.append("reanchor_scale_disagrees")
+    return fails, met
 
 
 def motion_gate_failures(metrics: dict, gate: GateParams = GateParams()) -> list[str]:
