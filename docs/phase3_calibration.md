@@ -200,7 +200,7 @@ every_10 — 2 ok (110, 120), 40 / 30; every_15 — 1 ok (115), 36 / 34. No fram
 - **Conclusion:** bounded seeded refinement does not fix the drift. The code stays (`reanchor=None` default).
   Next: reduce the number of compounding motion steps (keyframe matching), see Stage 3b.
 
-## Stage 3b — keyframe matching (implemented, not yet run on Kaggle)
+## Stage 3b — keyframe matching (run 2026-11-24: drift reduced to 8–10 px max)
 
 Code: `gating.KeyframeParams`, `gated_propagate(..., keyframe=...)`; notebook section 2d. `keyframe=None`
 (default) is exactly Stage 2.
@@ -218,6 +218,32 @@ Code: `gating.KeyframeParams`, `gated_propagate(..., keyframe=...)`; notebook se
   `max_gap` = 10 / 25 / 50 against the references.
 - Risk: matching across a larger gap means larger appearance change (zoom 2.77× over the window); ORB's
   scale pyramid should cope with the ≤ ~1.3× change inside 25 frames, and failures fall back to the chain.
+
+### Stage 3b results (Kaggle run, 2026-11-24, frames 100–199)
+
+Artifacts: `results/phase3/stage3b/stage3b_keyframe_gap{10,25,50}.csv` (tracked); `stage3b_reference_check.png`
+(local, git-ignored).
+
+Error vs the manual lane, mean / max (px):
+
+| Frame | Stage 2 | gap 10 | gap 25 (= gap 50) |
+|---|---|---|---|
+| 105 | 1.79 / 2.81 | 3.02 / 5.98 | 3.02 / 5.98 |
+| 115 | 3.76 / 6.27 | 1.63 / 3.43 | 1.63 / 3.43 |
+| 150 | 12.72 / 19.63 | 6.92 / 11.13 | 5.35 / 7.95 |
+| 175 | 11.89 / 20.13 | 9.10 / 15.41 | 7.65 / 9.61 |
+| 199 | 22.96 / 48.15 | 8.64 / 14.46 | 7.34 / 7.82 |
+
+- All 99 frames `propagated`, no fallback, no rejection. The worst error over the references drops from 48 px
+  to 9.6 px (gap 25), and it no longer grows with distance from frame 100 (7.3 / 7.8 px at 199).
+  Overlay: the keyframe lane's FT end reaches the manual FT corners at 175 / 199, where Stage 2 fell short.
+- **Every keyframe refresh (35 / 35 for gap 25) was triggered by `inliers < 150`**, none by `max_gap`, so
+  gap 25 and 50 are identical. After ~160 keyframes last only 1–3 frames, so much of the chaining remains.
+  `refresh_min_inliers` is the parameter to tune next (keyframe-mode inliers: median 184, min 58).
+- Frame 105 is slightly worse than Stage 2 (3.0 vs 1.8 px mean): a 10-frame match vs 5 chained steps; within
+  the few-px precision of the references, but a reminder that one wide match is not automatically better.
+- Not yet accepted into `ACCEPTED_HOMOGRAPHIES`: no acceptance threshold has been agreed, results come from
+  one segment only, and only 5 reference frames constrain 100 frames.
 
 ## Findings from the code audit
 
@@ -262,6 +288,6 @@ Code: `gating.KeyframeParams`, `gated_propagate(..., keyframe=...)`; notebook se
 1. **Stage 1 (done, 2026-11-17):** reproduction numbers confirmed; see Stage 1 results.
 2. **Stage 2 (done: accurate to ~6 px for ~15 frames, then drifts to 20–48 px by 150–199):** confidence-gated local propagation. Use court-only features, check inlier spatial spread and
    convex/plausible lane polygons, and compare independent vs propagated estimates at the reference frames.
-3. **Stage 3 (re-anchoring by refinement: run, does not fix drift; 3b keyframe matching implemented, awaiting run):** automatic re-anchoring and rejection. Frame status is one of
+3. **Stage 3 (re-anchoring by refinement: run, does not fix drift; 3b keyframe matching: max error 48 → 9.6 px at the references):** automatic re-anchoring and rejection. Frame status is one of
    `reference | independent | propagated | reconstructed | rejected | lost`.
 4. **Stage 4:** validate on other camera-motion segments, then do per-frame footpoint mapping.
