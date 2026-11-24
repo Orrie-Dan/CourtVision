@@ -245,6 +245,29 @@ Error vs the manual lane, mean / max (px):
 - Not yet accepted into `ACCEPTED_HOMOGRAPHIES`: no acceptance threshold has been agreed, results come from
   one segment only, and only 5 reference frames constrain 100 frames.
 
+### Stage 3b refresh-threshold sweep (Kaggle run, 2026-11-24, max_gap 25)
+
+Artifacts: `results/phase3/stage3b/stage3b_keyframe_gap25_inl{50,100,150}.csv`. `inl150` reproduces the
+first gap-25 run exactly.
+
+Error vs the manual lane, mean / max (px):
+
+| Frame | Stage 2 | inl 50 | inl 100 | inl 150 (default) |
+|---|---|---|---|---|
+| 105 | 1.79 / 2.81 | 3.02 / 5.98 | 3.02 / 5.98 | 3.02 / 5.98 |
+| 115 | 3.76 / 6.27 | 2.11 / 3.52 | 2.05 / 3.60 | 1.62 / 3.43 |
+| 150 | 12.72 / 19.63 | 5.43 / 8.24 | 5.23 / 6.70 | 5.35 / 7.95 |
+| 175 | 11.89 / 20.13 | 8.11 / 10.72 | 7.04 / 9.90 | 7.65 / 9.61 |
+| 199 | 22.96 / 48.15 | 16.31 / 21.90 | 7.88 / 11.81 | 7.34 / 7.82 |
+
+Keyframes: 9 (inl 50; 3 fallbacks), 19 (inl 100), 35 (inl 150). All frames `propagated` in every run.
+
+- **Fewer keyframes did not help.** inl 50 holds keyframes ~10 frames but its weak matches (median 100
+  inliers, min 41) are less accurate: 199 doubles to 16 / 22 px. inl 100 is mixed. 150 stays the default.
+- With 35 refreshes the error no longer grows along the window, so the remaining 5–8 px is dominated by
+  per-match accuracy (and the few-px reference precision), not compounding. Further keyframe tuning has
+  diminishing returns on this segment.
+
 ## Findings from the code audit
 
 1. **Frame-115 "automatic" result is seeded by the manual clicks.** Only segments within 14–18 px / 8–12° of the
