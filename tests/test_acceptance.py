@@ -29,6 +29,14 @@ def test_needs_a_reference_inside_segment_other_than_start():
     assert acc == {} and why.startswith("no reference frame")
 
 
+def test_anchor_at_segment_end_is_not_a_check():
+    """Backward run anchored on a manual reference at 199: 199 itself must not validate the segment."""
+    assert accept_segment(HOMS, {199: 0.0}, 100, 199, anchor=199)[0] == {}
+    acc, why = accept_segment(HOMS, {150: 4.0, 199: 0.0}, 100, 199, anchor=199)
+    assert len(acc) == 100 and "refs [150]" in why
+    assert accept_segment(HOMS, {100: 4.0, 199: 0.0}, 100, 199, anchor=199)[0]   # start counts if not the anchor
+
+
 def test_frames_without_homography_and_outside_segment_excluded():
     homs = {k: v for k, v in HOMS.items() if k != 120}
     homs[250] = np.eye(3)

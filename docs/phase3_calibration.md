@@ -329,6 +329,19 @@ Artifacts: `results/phase3/stage4/stage4_runB_keyframe_100_300.csv`; `stage4_ref
   are rejected / lost instead of silently wrong, and a second segment anchored on the manual reference at 275,
   propagated forward and backward and checked against 250 and 299.
 
+### Stage 4 run C (prepared, not yet run)
+
+Notebook 2e.5 / 2e.6, `propagation.gated_propagate_order` (propagation over any frame order, e.g. backward),
+`accept_segment(..., anchor=)` (the anchor frame never validates its own segment).
+
+- (a) Keyframe propagation from 100 with `min_inlier_hull_frac = 0.10` (notebook-level `GATE_S4`; the package
+  default stays 0.03 so earlier stages reproduce). Expected: 100–199 unchanged; 200+ rejected / lost where the
+  inliers cluster.
+- (b) Segment anchored on the manual full reference at 275 (`image_to_court` of its clicked lane), propagated
+  forward to 299 and backward toward 200 with the same gates; checked against 250 (3 corners) and 299 (FT
+  corners). Weakness: needs a manual anchor per hard stretch; does not scale to other clips.
+- Section 5 maps every accepted segment of run C.
+
 ## Findings from the code audit
 
 1. **Frame-115 "automatic" result is seeded by the manual clicks.** Only segments within 14–18 px / 8–12° of the

@@ -8,7 +8,7 @@ import numpy as np
 from courtvision.gating import KeyframeParams, ReanchorParams
 from courtvision.homography import image_to_court, project_court_to_image
 from courtvision.lane import LaneResult
-from courtvision.propagation import gated_propagate
+from courtvision.propagation import gated_propagate, gated_propagate_order
 
 LANE0 = np.array([[300, 500], [400, 400], [800, 450], [750, 560]], np.float64)
 NEVER_REFRESH = dict(refresh_min_inliers=0, refresh_max_shift_px=1e9)
@@ -176,3 +176,22 @@ def test_keyframes_reduce_drift_under_zoom():
     assert chain_err[-1] > 1.5                                 # the chain does drift here
     assert kf_err[-1] < 0.75 * chain_err[-1], (kf_err[-1], chain_err[-1])
     assert np.mean(kf_err) < 0.75 * np.mean(chain_err)
+
+
+def test_propagate_order_backward_from_anchor():
+    """Anchor at frame 6, propagate backward to 0: real frame ids in records and homographies."""
+    frames = _pan_frames(7, 5)
+    anchor_lane = LANE0 - [30, 0]                              # true lane in frame 6
+    seen = []
+
+    def mask_fn(idx, img):
+        seen.append(idx)
+        return None
+
+    homs, recs = gated_propagate_order(frames.__getitem__, image_to_court(anchor_lane), range(6, -1, -1),
+                                       mask_fn=mask_fn, refine_fn=_no_refine, keyframe=KeyframeParams())
+    assert [r["frame"] for r in recs] == [6, 5, 4, 3, 2, 1, 0] and seen == [6, 5, 4, 3, 2, 1, 0]
+    assert recs[0]["status"] == "reference" and all(r["status"] == "propagated" for r in recs[1:])
+    assert recs[1]["anchor"] == 6
+    for i in range(7):
+        np.testing.assert_allclose(project_court_to_image(homs[i]), LANE0 - [5 * i, 0], atol=1.5)

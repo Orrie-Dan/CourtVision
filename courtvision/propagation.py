@@ -222,3 +222,23 @@ def gated_propagate(load_frame: Callable, H_ref: np.ndarray, ref_idx: int, stop:
                 rec["new_keyframe"] = True
         rejections = 0
     return homs, records
+
+
+def gated_propagate_order(load_frame: Callable, H_ref: np.ndarray, order, mask_fn: Callable | None = None,
+                          diag_mask_fn: Callable | None = None, **kwargs):
+    """`gated_propagate` over an arbitrary frame order, e.g. backward from a manual anchor.
+
+    order[0] is the reference frame (H_ref is its image->court homography); propagation visits
+    order[1], order[2], ... with every gate and option of `gated_propagate` (kwargs are passed
+    through). Returns (homographies keyed by real frame index, records with real `frame` / `anchor`).
+    """
+    order = [int(f) for f in order]
+    assert len(order) == len(set(order)) and order, "order must be non-empty and without repeats"
+    homs, recs = gated_propagate(lambda k: load_frame(order[k]), H_ref, 0, len(order),
+                                 mask_fn=(lambda k, img: mask_fn(order[k], img)) if mask_fn else None,
+                                 diag_mask_fn=diag_mask_fn, **kwargs)
+    for r in recs:
+        r["frame"] = order[r["frame"]]
+        if "anchor" in r and r["anchor"] == r["anchor"]:  # skip NaN
+            r["anchor"] = order[int(r["anchor"])]
+    return {order[k]: H for k, H in homs.items()}, recs

@@ -145,19 +145,22 @@ def lane_gate(corners, prev_corners, image_size, gap: int = 1, gate: GateParams 
     return fails, met
 
 
-def accept_segment(homs: dict, ref_max_err: dict, start: int, stop: int, max_err_px: float = 10.0):
+def accept_segment(homs: dict, ref_max_err: dict, start: int, stop: int, max_err_px: float = 10.0,
+                   anchor: int | None = None):
     """Frames of [start, stop] whose calibration may be used for mapping, plus the reason.
 
     Rule (agreed 2026-11-24): a propagated segment is accepted only if it contains at least one
-    reference frame other than `start`, every such reference frame was calibrated (present in
-    `homs`), and each has max corner error <= `max_err_px` vs its manual lane. Then every
-    calibrated frame in the segment is accepted; frames without a homography stay excluded.
+    reference frame other than its `anchor` (the frame propagation started from; default `start`),
+    every such reference frame was calibrated (present in `homs`), and each has max corner error
+    <= `max_err_px` vs its manual lane. Then every calibrated frame in the segment is accepted;
+    frames without a homography stay excluded.
     `ref_max_err` = {reference frame: max px error, or None/NaN if not measured}.
     Returns ({idx: H}, reason string).
     """
-    refs = sorted(f for f in ref_max_err if start < f <= stop)
+    anchor = start if anchor is None else anchor
+    refs = sorted(f for f in ref_max_err if start <= f <= stop and f != anchor)
     if not refs:
-        return {}, f"no reference frame inside ({start}, {stop}]"
+        return {}, f"no reference frame in [{start}, {stop}] other than the anchor {anchor}"
     bad = []
     for f in refs:
         e = ref_max_err[f]
