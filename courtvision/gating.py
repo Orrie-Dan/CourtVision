@@ -145,15 +145,22 @@ def lane_gate(corners, prev_corners, image_size, gap: int = 1, gate: GateParams 
     return fails, met
 
 
+REFINED_STATUSES = ("reconstructed", "independent")  # lane from seeded refinement, not from motion
+
+
 def accept_segment(homs: dict, ref_max_err: dict, start: int, stop: int, max_err_px: float = 10.0,
-                   anchor: int | None = None):
+                   anchor: int | None = None, statuses: dict | None = None):
     """Frames of [start, stop] whose calibration may be used for mapping, plus the reason.
 
-    Rule (agreed 2026-11-24): a propagated segment is accepted only if it contains at least one
-    reference frame other than its `anchor` (the frame propagation started from; default `start`),
-    every such reference frame was calibrated (present in `homs`), and each has max corner error
-    <= `max_err_px` vs its manual lane. Then every calibrated frame in the segment is accepted;
-    frames without a homography stay excluded.
+    Rule (agreed 2026-11-24, tightened the same day):
+    1. The segment must contain at least one reference frame other than its `anchor` (the frame
+       propagation started from; default `start`), every such reference must be calibrated (in
+       `homs`), and each must have max corner error <= `max_err_px` vs its manual lane.
+       Otherwise nothing is accepted.
+    2. Only frames BRACKETED by known lanes are accepted: from the first to the last of
+       {anchor} | references. Frames beyond the outermost reference are extrapolation.
+    3. If `statuses` ({frame: status}) is given, frames whose lane came from seeded refinement
+       (`REFINED_STATUSES`) are dropped unless they are themselves a measured reference frame.
     `ref_max_err` = {reference frame: max px error, or None/NaN if not measured}.
     Returns ({idx: H}, reason string).
     """
@@ -170,5 +177,12 @@ def accept_segment(homs: dict, ref_max_err: dict, start: int, stop: int, max_err
             bad.append(f"{f}: {e:.2f} px > {max_err_px}")
     if bad:
         return {}, "rejected (" + "; ".join(bad) + ")"
-    accepted = {f: H for f, H in homs.items() if start <= f <= stop}
-    return accepted, f"accepted {len(accepted)} frames; refs {refs} max err <= {max_err_px} px"
+    ends = refs + ([anchor] if start <= anchor <= stop else [])
+    lo, hi = min(ends), max(ends)
+    refined = sorted(f for f, st in (statuses or {}).items()
+                     if st in REFINED_STATUSES and lo <= f <= hi and f in homs and f not in refs)
+    accepted = {f: H for f, H in homs.items() if lo <= f <= hi and f not in refined}
+    why = f"accepted {len(accepted)} frames in [{lo}, {hi}]; refs {refs} max err <= {max_err_px} px"
+    if refined:
+        why += f"; dropped unchecked refined frames {refined}"
+    return accepted, why

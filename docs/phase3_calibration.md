@@ -271,8 +271,13 @@ Keyframes: 9 (inl 50; 3 fallbacks), 19 (inl 100), 35 (inl 150). All frames `prop
 ## Acceptance rule for mapping (agreed 2026-11-24)
 
 A propagated segment is accepted for player mapping only if it contains at least one reference frame (other than
-its start) and **every** reference frame in it is calibrated with **max corner error ≤ 10 px** vs its manual lane
-(`gating.accept_segment`, `tests/test_acceptance.py`). Then all calibrated frames of the segment are accepted.
+its anchor) and **every** reference frame in it is calibrated with **max corner error ≤ 10 px** vs its manual lane
+(`gating.accept_segment`, `tests/test_acceptance.py`).
+
+Tightened the same day after Stage 4 run C (user decision): of an accepted segment, only frames **between the
+outermost known lanes** (anchor and references) are used — no extrapolation beyond the last reference — and frames
+whose lane came from seeded refinement (`reconstructed` / `independent`) are dropped unless they are themselves a
+measured reference frame.
 
 - Frames 100–199 with Stage 3b keyframe propagation qualify (max 9.6 px at 175). The notebook's mapping section
   now fills `ACCEPTED_HOMOGRAPHIES` with them and writes `player_lane_coordinates.csv` (lane-relative metres),
@@ -329,7 +334,7 @@ Artifacts: `results/phase3/stage4/stage4_runB_keyframe_100_300.csv`; `stage4_ref
   are rejected / lost instead of silently wrong, and a second segment anchored on the manual reference at 275,
   propagated forward and backward and checked against 250 and 299.
 
-### Stage 4 run C (prepared, not yet run)
+### Stage 4 run C (design)
 
 Notebook 2e.5 / 2e.6, `propagation.gated_propagate_order` (propagation over any frame order, e.g. backward),
 `accept_segment(..., anchor=)` (the anchor frame never validates its own segment).
@@ -341,6 +346,36 @@ Notebook 2e.5 / 2e.6, `propagation.gated_propagate_order` (propagation over any 
   forward to 299 and backward toward 200 with the same gates; checked against 250 (3 corners) and 299 (FT
   corners). Weakness: needs a manual anchor per hard stretch; does not scale to other clips.
 - Section 5 maps every accepted segment of run C.
+
+### Stage 4 run C results (Kaggle, 2026-11-24)
+
+Artifacts: `results/phase3/stage4/stage4_runC_{strict_from100,anchor275}.csv`; `stage4_runC_reference_check.png`
+(local).
+
+- **Strict gate from 100:** 100–199 unchanged and accepted. In the push-in it rejects 215 and 226–229 for
+  clustered inliers (hull 0.014–0.091) and is `lost` at 230; 200–225 calibrated but unvalidated (no reference),
+  so segment 200–299 is rejected. The stricter gate turns silent drift into an explicit stop, as intended.
+- **Anchored on 275:** forward 276–299 all propagated except 296 (rejected, recovered). Backward reached 237
+  (`lost`, 237–241 rejected for clustered inliers / lane leaving the frame); 6 frames `reconstructed`
+  (245, 248, 249, 250, 253, 254), 244 and 255 rejected.
+
+| Frame | Status | Valid corners | Mean / max (px) |
+|---|---|---|---|
+| 250 | reconstructed | 3 | 7.17 / 9.56 |
+| 275 | reference (anchor) | 4 | 0 / 0 |
+| 299 | propagated | 2 | 5.63 / 6.45 |
+
+- `[anchor 275] 242-299: accepted 55 frames`. Mapping now covers 155 frames (100–199, 242–299), 1,162 player
+  footpoints. Overlay: the anchored lane sits on the painted lines at 250 and 299.
+- **Caveats on what the rule accepted:** 242–249 lie *outside* the references (backward of 250, extrapolated);
+  the reconstructed frames come from the seeded refinement known to be biased by 5–8 px, and their lanes jumped
+  17–58 px from the motion prediction (254: 58 px, then 255 rejected); 250 itself is reconstructed and passes
+  with 0.4 px to spare. 200–241 remain uncalibrated or unvalidated.
+
+**Tightened rule applied to run C** (computed locally from the run C CSVs): 100–199 unchanged (100 frames);
+anchor-275 segment → 46 frames in [250, 299] (242–249 dropped as extrapolation; 253 / 254 dropped as unchecked
+refined frames; 255 and 296 were rejected). Total accepted for mapping: 146 frames. The mapping CSV in the run C
+zip predates the tightening and still includes 242–249, 253, 254; the next notebook run regenerates it.
 
 ## Findings from the code audit
 
