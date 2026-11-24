@@ -377,6 +377,22 @@ anchor-275 segment → 46 frames in [250, 299] (242–249 dropped as extrapolati
 refined frames; 255 and 296 were rejected). Total accepted for mapping: 146 frames. The mapping CSV in the run C
 zip predates the tightening and still includes 242–249, 253, 254; the next notebook run regenerates it.
 
+## Phase 3 result (Kaggle, 2026-11-24, commit 4125ab2)
+
+Artifacts: `results/phase3/mapping/player_lane_coordinates.csv` and `experiment_config.json`.
+
+- **146 accepted frames**: 100–199 (keyframe propagation from the frame-100 reference; strict spread gate) and
+  250–299 minus 253, 254, 255, 296 (segment anchored on the manual reference at 275). Every accepted frame lies
+  between references that each have max corner error ≤ 10 px.
+- **1,103 player footpoints** mapped to lane-relative metres (median 8 detections per frame, 33 track IDs).
+  100–199: x 1.1–10.3 m, y −3.3–6.6 m. 250–299 (wide shots): x −0.1–17.8 m, y −6.7–6.1 m.
+- Sanity: with the lane centred on a 15.24 m wide court, the sidelines are at y ≈ −5.8 m and +9.4 m; the few
+  points down to −6.7 m are ~1 m outside the sideline (bench / officials, or calibration error far from the
+  lane). Not investigated.
+- **Not covered:** 0–99 (never propagated), 200–249 (push-in; rejected or unvalidated). **Limits:** settings tuned
+  on 100–199; the 250–299 segment needed a manual anchor; references are a few px precise; coordinates are
+  lane-relative with unverified NCAA dimensions.
+
 ## Findings from the code audit
 
 1. **Frame-115 "automatic" result is seeded by the manual clicks.** Only segments within 14–18 px / 8–12° of the
@@ -422,4 +438,4 @@ zip predates the tightening and still includes 242–249, 253, 254; the next not
    convex/plausible lane polygons, and compare independent vs propagated estimates at the reference frames.
 3. **Stage 3 (re-anchoring by refinement: run, does not fix drift; 3b keyframe matching: max error 48 → 9.6 px at the references):** automatic re-anchoring and rejection. Frame status is one of
    `reference | independent | propagated | reconstructed | rejected | lost`.
-4. **Stage 4 (run A prepared):** validate on frames 200–299 (not used for tuning), then extend mapping. Footpoint mapping is live for the accepted 100–199.
+4. **Stage 4 (done: 100–199 and 250–299 accepted, 146 frames mapped; 200–249 not recoverable without a new anchor):** validate on frames 200–299 (not used for tuning), then extend mapping. Footpoint mapping is live for the accepted 100–199.
