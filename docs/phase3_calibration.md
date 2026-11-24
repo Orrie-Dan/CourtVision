@@ -268,6 +268,26 @@ Keyframes: 9 (inl 50; 3 fallbacks), 19 (inl 100), 35 (inl 150). All frames `prop
   per-match accuracy (and the few-px reference precision), not compounding. Further keyframe tuning has
   diminishing returns on this segment.
 
+## Acceptance rule for mapping (agreed 2026-11-24)
+
+A propagated segment is accepted for player mapping only if it contains at least one reference frame (other than
+its start) and **every** reference frame in it is calibrated with **max corner error ≤ 10 px** vs its manual lane
+(`gating.accept_segment`, `tests/test_acceptance.py`). Then all calibrated frames of the segment are accepted.
+
+- Frames 100–199 with Stage 3b keyframe propagation qualify (max 9.6 px at 175). The notebook's mapping section
+  now fills `ACCEPTED_HOMOGRAPHIES` with them and writes `player_lane_coordinates.csv` (lane-relative metres),
+  using the detector boxes from the propagation window if section 4 tracking was not run.
+- Caveat recorded in `experiment_config.json`: validated on one segment with 5 references, and the settings were
+  tuned on that same segment. Stage 4 is the out-of-sample check.
+
+## Stage 4 — out-of-sample check on frames 200–299 (run A prepared, not yet run)
+
+Notebook section 2e: keyframe propagation with the Stage 3b defaults extended 100 → 299 (player boxes tracked for
+200–299 too), a per-10-frame camera-motion table (lane area vs frame 100, lane centre, keyframes), a contact sheet
+of 200–299 with the propagated lane, and selector pages for candidate reference frames 225 / 250 / 275 / 299
+(`selectors/` in the artifacts zip). Run B: add the clicked frames to `annotations.py`, re-run, and apply the
+acceptance rule to 200–299.
+
 ## Findings from the code audit
 
 1. **Frame-115 "automatic" result is seeded by the manual clicks.** Only segments within 14–18 px / 8–12° of the
@@ -313,4 +333,4 @@ Keyframes: 9 (inl 50; 3 fallbacks), 19 (inl 100), 35 (inl 150). All frames `prop
    convex/plausible lane polygons, and compare independent vs propagated estimates at the reference frames.
 3. **Stage 3 (re-anchoring by refinement: run, does not fix drift; 3b keyframe matching: max error 48 → 9.6 px at the references):** automatic re-anchoring and rejection. Frame status is one of
    `reference | independent | propagated | reconstructed | rejected | lost`.
-4. **Stage 4:** validate on other camera-motion segments, then do per-frame footpoint mapping.
+4. **Stage 4 (run A prepared):** validate on frames 200–299 (not used for tuning), then extend mapping. Footpoint mapping is live for the accepted 100–199.

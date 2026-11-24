@@ -143,3 +143,29 @@ def lane_gate(corners, prev_corners, image_size, gap: int = 1, gate: GateParams 
     if not gate.min_area_ratio <= area_ratio <= gate.max_area_ratio:
         fails.append("lane_area_change")
     return fails, met
+
+
+def accept_segment(homs: dict, ref_max_err: dict, start: int, stop: int, max_err_px: float = 10.0):
+    """Frames of [start, stop] whose calibration may be used for mapping, plus the reason.
+
+    Rule (agreed 2026-11-24): a propagated segment is accepted only if it contains at least one
+    reference frame other than `start`, every such reference frame was calibrated (present in
+    `homs`), and each has max corner error <= `max_err_px` vs its manual lane. Then every
+    calibrated frame in the segment is accepted; frames without a homography stay excluded.
+    `ref_max_err` = {reference frame: max px error, or None/NaN if not measured}.
+    Returns ({idx: H}, reason string).
+    """
+    refs = sorted(f for f in ref_max_err if start < f <= stop)
+    if not refs:
+        return {}, f"no reference frame inside ({start}, {stop}]"
+    bad = []
+    for f in refs:
+        e = ref_max_err[f]
+        if f not in homs or e is None or not np.isfinite(e):
+            bad.append(f"{f}: not calibrated/measured")
+        elif e > max_err_px:
+            bad.append(f"{f}: {e:.2f} px > {max_err_px}")
+    if bad:
+        return {}, "rejected (" + "; ".join(bad) + ")"
+    accepted = {f: H for f, H in homs.items() if start <= f <= stop}
+    return accepted, f"accepted {len(accepted)} frames; refs {refs} max err <= {max_err_px} px"
