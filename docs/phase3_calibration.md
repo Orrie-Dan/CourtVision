@@ -151,7 +151,7 @@ for 101–151 identical to the first run). Error of the gated lane vs the manual
 - Manual-reference precision is a few px (105/115 FT-corner checks); the 20–48 px errors are well above it.
 - Image: `results/phase3/stage2/stage2_reference_check.png` (local, git-ignored).
 
-## Stage 3 — re-anchoring (implemented, not yet run on Kaggle)
+## Stage 3 — re-anchoring by bounded refinement (run 2026-11-24: does not fix drift)
 
 Code: `gating.ReanchorParams`, `gating.reanchor_failures`, `gated_propagate(..., reanchor=...)`; notebook
 section 2c. `reanchor=None` (default) is exactly Stage 2.
@@ -165,15 +165,40 @@ section 2c. `reanchor=None` (default) is exactly Stage 2.
   should be within a few px of the prediction — inside the refinement band, unlike the 60+ px case of finding 4.
 - Still seeded refinement (finding 4). A snap to the wrong line within 10 px would persist; the measured
   error at 150 / 175 / 199 is the check.
-- Known gap: refinement needs all four lines. From ~140 the lower lane line is under the score bar and the
-  FT-lower corner leaves the frame by 175, so re-anchoring may fail (`lower_lane_failed`) exactly where drift
-  is largest. The `reanchor_status` counts in 2c.1 will show this; if so, the next step is a 3-line fix
-  that keeps the predicted lower line.
-- Thresholds are provisional; 2c.1 compares `every_n` = 5 / 10 / 15. Frames are still not added to
-  `ACCEPTED_HOMOGRAPHIES`.
+- Thresholds are provisional; 2c.1 compares `every_n` = 5 / 10 / 15.
 - **Verified:** synthetic tests (`tests/test_stage3.py`): guards, schedule, retry after a failed fix, guard
   rejection keeps the prediction, no re-anchor on rejected frames, and an end-to-end run with real ORB and
   real Hough refinement that pulls a lane whose FT end starts 7 px short back to < 4 px.
+
+### Stage 3 results (Kaggle run, 2026-11-24, frames 100–199)
+
+Artifacts: `results/phase3/stage3/stage3_reanchor_every{5,10,15}.csv` (tracked); `stage3_reference_check.png`
+(local, git-ignored). Stage 2 metrics in the same run are identical to the committed Stage 2 re-run.
+
+Mean error vs the manual lane (px):
+
+| Frame | Stage 2 | every_5 | every_10 | every_15 |
+|---|---|---|---|---|
+| 105 | 1.79 | 4.39 | 1.79 | 1.79 |
+| 115 | 3.76 | 6.91 | 6.56 | 6.07 |
+| 150 | 12.72 | 12.59 | 12.47 | 15.06 |
+| 175 | 11.89 | 15.82 | 11.44 | 13.04 |
+| 199 | 22.96 | 21.76 | 22.47 | 25.04 |
+
+Re-anchor outcomes: every_5 — 10 ok (105–150), 30 `correction_too_large`, 15 `free_throw_failed`;
+every_10 — 2 ok (110, 120), 40 / 30; every_15 — 1 ok (115), 36 / 34. No frame rejected or lost.
+
+- **Refinement is less accurate than short-range propagation.** Accepted fixes moved the lane 3–10 px and made
+  105 / 115 worse (1.79 → 4.39, 3.76 → 6.91 px). The seeded Hough fit is biased by ~5–8 px vs the manual
+  lines (cf. the 4.10 px click-vs-fit disagreement), so it cannot correct errors of that size.
+- **It follows the seed.** every_5 re-anchored *at* frame 150 (7.3 px correction) and still has 12.6 px error:
+  the fit settled near the drifted prediction, not on the painted line (finding 4 confirmed on real frames).
+- **Drift exceeds the 10 px band from ~130**, so the guard blocks the corrections that matter; widening it
+  would also admit wrong snaps.
+- **The free-throw line is not found from ~150** (not the lower lane line, as predicted): players stand on it,
+  the blue key boundary is adjacent, and its lower end runs under the score bar.
+- **Conclusion:** bounded seeded refinement does not fix the drift. The code stays (`reanchor=None` default).
+  Next: reduce the number of compounding motion steps (keyframe matching), see Stage 3b.
 
 ## Findings from the code audit
 
@@ -218,6 +243,6 @@ section 2c. `reanchor=None` (default) is exactly Stage 2.
 1. **Stage 1 (done, 2026-11-17):** reproduction numbers confirmed; see Stage 1 results.
 2. **Stage 2 (done: accurate to ~6 px for ~15 frames, then drifts to 20–48 px by 150–199):** confidence-gated local propagation. Use court-only features, check inlier spatial spread and
    convex/plausible lane polygons, and compare independent vs propagated estimates at the reference frames.
-3. **Stage 3 (implemented, awaiting Kaggle run):** automatic re-anchoring and rejection. Frame status is one of
+3. **Stage 3 (re-anchoring by refinement: run, does not fix drift; keyframe matching next):** automatic re-anchoring and rejection. Frame status is one of
    `reference | independent | propagated | reconstructed | rejected | lost`.
 4. **Stage 4:** validate on other camera-motion segments, then do per-frame footpoint mapping.
