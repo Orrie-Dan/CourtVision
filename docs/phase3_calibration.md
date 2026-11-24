@@ -118,19 +118,38 @@ so some people were probably missed: masking is partial).
 - Static-inlier share 0.000 for frames 104–121; off-court share ≤ 0.002; bottom-band share 0.
 - Frame-115 error (3.76 px) is about the size of the manual-click vs fitted-line disagreement (4.10 px),
   i.e. at the resolution the current references can measure.
-- **Frames 120–190 (visual check only, half-resolution grid):** the lane stays on the painted lane, its
-  free-throw end meets the key arc, and its baseline follows the "ST. LOUIS" lettering. Players grow with
-  the lane, so the 2.77× cumulative lane-area growth over 100–199 is camera zoom, not scale drift.
-  From ~140 the lower half of the lane is under the score bar and cannot be checked visually.
+- **Frames 120–190 (visual check only, half-resolution grid):** no gross failure — the lane stays near the
+  painted lane and players grow with it, so the camera really zooms in (2.77× lane area over 100–199). The
+  grid is too coarse to see 20–50 px errors; the measured check below **supersedes** the earlier reading of
+  this grid as "no drift".
 - **Rejections were false:** all five were slow pans (median motion ~1.4 px) with static share
   0.22–0.32 and the next frame accepted across the gap. Accepted frames reached 0.295; Stage 1 pinned fits
   started at 0.47. The threshold is now **0.40** (tuned on this run; recheck on new segments).
 - **Reconstructions at 162–163** moved the lane 13–17 px from the motion prediction (~3 px). Frame 170
   still looks aligned, so this did not derail the chain, but whether it corrected drift or snapped to the
   wrong line is unresolved. Refinement is still seeded (finding 4).
-- **Not verified:** pixel accuracy beyond frame 115 (no references), the lower lane corners after ~140,
-  and the effect of the 0.40 threshold on real frames (needs a re-run). No frame is in
-  `ACCEPTED_HOMOGRAPHIES` yet.
+
+### Stage 2 re-run (threshold 0.40) and measured error at the new references
+
+All 99 frames 101–199 `propagated` (the 5 false rejections and the 162–163 reconstructions are gone; metrics
+for 101–151 identical to the first run). Error of the gated lane vs the manual lane, per corner
+(baseline-lower, baseline-upper, FT-upper, FT-lower; partial references omit FT-lower):
+
+| Frame | Corners | Per corner (px) | Mean / max (px) |
+|---|---|---|---|
+| 105 | 4 | 2.8, 0.4, 1.6, 2.4 | 1.79 / 2.81 |
+| 115 | 4 | 6.0, 6.3, 0.2, 2.5 | 3.76 / 6.27 |
+| 150 | 4 | 7.3, 4.6, 19.6, 19.4 | 12.72 / 19.63 |
+| 175 | 3 | 10.7, 4.8, 20.1 | 11.89 / 20.13 |
+| 199 | 3 | 15.1, 5.6, 48.2 | 22.96 / 48.15 |
+
+- **Gated propagation drifts after ~115.** Baseline-upper stays ~5 px, but the free-throw end drifts to
+  ~20 px by 150–175 and 48 px by 199; at 199 the gated lane is visibly shorter than the manual one.
+  Pattern = scale under-estimation compounding over ~100 chained steps while the camera zooms in.
+- Consequence: chained motion alone is good for roughly 15 frames from an anchor. Frames after ~120 are
+  **not** accurate enough to accept; `ACCEPTED_HOMOGRAPHIES` stays empty. Stage 3 (re-anchoring) is needed.
+- Manual-reference precision is a few px (105/115 FT-corner checks); the 20–48 px errors are well above it.
+- Image: `results/phase3/stage2/stage2_reference_check.png` (local, git-ignored).
 
 ## Findings from the code audit
 
@@ -173,7 +192,7 @@ so some people were probably missed: masking is partial).
 ## Next stages
 
 1. **Stage 1 (done, 2026-11-17):** reproduction numbers confirmed; see Stage 1 results.
-2. **Stage 2 (implemented and run on 100–199; needs references at e.g. 150 / 175 / 199 for measured error):** confidence-gated local propagation. Use court-only features, check inlier spatial spread and
+2. **Stage 2 (done: accurate to ~6 px for ~15 frames, then drifts to 20–48 px by 150–199):** confidence-gated local propagation. Use court-only features, check inlier spatial spread and
    convex/plausible lane polygons, and compare independent vs propagated estimates at the reference frames.
 3. **Stage 3:** automatic re-anchoring and rejection. Frame status is one of
    `independent | propagated | reconstructed | rejected`.
